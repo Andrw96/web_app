@@ -3,7 +3,11 @@ from supabase import create_client, Client
 from datetime import datetime, timedelta
 
 # 1. CONFIGURACIÓN
-st.set_page_config(page_title="BarberFlow Admin", layout="wide")
+st.set_page_config(
+    page_title="BarberFlow Admin", 
+    layout="wide", 
+    initial_sidebar_state="collapsed" # Esto hace la magia
+)
 
 # 2. CONEXIÓN A SUPABASE
 URL = "https://vtqfhynmghxbpkrjdpwf.supabase.co"
