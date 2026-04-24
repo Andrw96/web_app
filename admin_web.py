@@ -1,10 +1,9 @@
 import streamlit as st
 from supabase import create_client, Client
 from datetime import datetime, timedelta
-import time
 
 # 1. CONFIGURACIÓN
-st.set_page_config(page_title="BarberFlow Admin", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="BarberFlow Admin", layout="wide")
 
 # 2. CONEXIÓN A SUPABASE
 URL = "https://vtqfhynmghxbpkrjdpwf.supabase.co"
@@ -16,149 +15,140 @@ def init_connection():
 
 supabase: Client = init_connection()
 
-# 3. ESTILOS CSS
+# 3. ESTILOS CSS REPLICANDO LA APP DE ESCRITORIO
 st.markdown("""
     <style>
-    [data-testid="stAppViewContainer"], .main { background-color: #000000 !important; }
-    [data-testid="stSidebar"] { background-color: #0A0A0A !important; border-right: 1px solid #1A1A1A; }
-    html, body, p, span, label, .stMarkdown { color: #FFFFFF !important; font-family: 'Inter', sans-serif; }
+    [data-testid="stAppViewContainer"], .main { background-color: #0E1117 !important; }
     
-    .metric-card-custom {
-        background-color: #141414;
-        border: 1px solid #222222;
-        border-radius: 24px;
-        padding: 20px;
-        margin-bottom: -45px;
-    }
-    .metric-value { font-size: 32px; font-weight: 700; color: #FFFFFF; }
-    .metric-label { font-size: 10px; color: #888888; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
+    /* Encabezado */
+    .header-text { font-size: 32px; font-weight: 800; color: #FFD700; margin-bottom: 20px; display: flex; align-items: center; }
     
-    .icon-box { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; margin-bottom: 8px; font-size: 18px; }
-    .orange { background: rgba(255, 152, 0, 0.1); color: #ff9800; }
-    .blue { background: rgba(33, 150, 243, 0.1); color: #2196f3; }
-    .green { background: rgba(76, 175, 80, 0.1); color: #4caf50; }
-    .purple { background: rgba(156, 39, 176, 0.1); color: #9c27b0; }
-
-    .stButton>button {
-        background-color: rgba(255, 255, 255, 0.05) !important;
-        color: #FFFFFF !important;
-        border: 1px solid #333333 !important;
-        border-radius: 12px !important;
-        font-size: 11px !important;
-        height: 32px !important;
-    }
-    
-    .detalle-container {
-        background-color: #0D0D0D;
-        border: 1px solid #222222;
+    /* Tarjetas Superiores */
+    .metric-card {
+        background-color: #1A1C23;
+        border: 1px solid #2D3139;
         border-radius: 20px;
-        padding: 25px;
-        margin-top: 50px;
+        padding: 20px;
+        cursor: pointer;
+        transition: 0.3s;
     }
-
-    .recaudacion-box {
-        background: linear-gradient(90deg, #141414 0%, #1a1a1a 100%);
-        padding: 15px;
+    .metric-card:hover { border-color: #FFD700; }
+    .metric-val { font-size: 42px; font-weight: 700; color: #FFFFFF; line-height: 1; }
+    .metric-lab { font-size: 14px; color: #888888; margin-top: 5px; }
+    
+    /* Títulos de Sección en Amarillo */
+    .section-title { color: #FFD700; font-size: 24px; font-weight: 700; margin: 30px 0 20px 0; }
+    
+    /* Tarjetas de Lista */
+    .item-card {
+        background-color: #1A1C23;
         border-radius: 15px;
-        border-left: 4px solid #2196f3;
-        margin-bottom: 20px;
+        padding: 15px;
+        margin-bottom: 10px;
+        border-left: 5px solid #2D3139;
     }
+    
+    /* Botones Amarillos */
+    .stButton>button {
+        background-color: #FFD700 !important;
+        color: #000000 !important;
+        font-weight: 700 !important;
+        border-radius: 12px !important;
+        border: none !important;
+        width: 100%;
+        height: 45px;
+    }
+    
+    /* Recaudación en Verde */
+    .recaudacion-text { color: #4CAF50; font-size: 28px; font-weight: 700; text-align: right; }
     </style>
     """, unsafe_allow_html=True)
 
-if 'auth' not in st.session_state: st.session_state.auth = False
-if 'tab_activa' not in st.session_state: st.session_state.tab_activa = None
+if 'tab_activa' not in st.session_state: st.session_state.tab_activa = "hoy"
 
-# --- AUTH ---
-if not st.session_state.auth:
-    st.markdown("<h1 style='text-align: center; margin-top: 50px;'>BarberFlow</h1>", unsafe_allow_html=True)
-    c1, c2, _ = st.columns([1, 1.5, 1])
-    with c2:
-        u = st.text_input("Usuario")
-        p = st.text_input("Contraseña", type="password")
-        if st.button("INGRESAR"):
-            try:
-                res = supabase.auth.sign_in_with_password({"email": u, "password": p})
-                st.session_state.user_id = res.user.id
-                st.session_state.auth = True
+# --- HEADER ---
+st.markdown('<div class="header-text">💈 ANDRW96</div>', unsafe_allow_html=True)
+
+# --- CARGA DE DATOS ---
+res = supabase.table("Turnos").select("*").execute()
+data = res.data if res.data else []
+hoy = datetime.now().date().isoformat()
+
+# Cálculos para los números de las tarjetas
+n_hoy = len([t for t in data if t['fecha'] == hoy and t['estado'].lower() == "pendiente"])
+n_agenda = len([t for t in data if t['fecha'] >= hoy and t['estado'].lower() == "pendiente"])
+n_cobros = len([t for t in data if t['fecha'] == hoy and t['estado'].lower() == "completado"])
+n_clientes = len(set(t['nombre'] for t in data if t.get('nombre')))
+
+# --- FILA DE TARJETAS (Interactuables) ---
+c1, c2, c3, c4 = st.columns(4)
+
+with c1:
+    st.markdown(f'<div class="metric-card">🕒<div class="metric-val">{n_hoy}</div><div class="metric-lab">Hoy</div></div>', unsafe_allow_html=True)
+    if st.button("Ver Hoy", key="btn_hoy"): st.session_state.tab_activa = "hoy"
+
+with c2:
+    st.markdown(f'<div class="metric-card">📅<div class="metric-val">{n_agenda}</div><div class="metric-lab">Agenda</div></div>', unsafe_allow_html=True)
+    if st.button("Ver Agenda", key="btn_age"): st.session_state.tab_activa = "age"
+
+with c3:
+    st.markdown(f'<div class="metric-card">💰<div class="metric-val">{n_cobros}</div><div class="metric-lab">Cobros</div></div>', unsafe_allow_html=True)
+    if st.button("Ver Cobros", key="btn_cob"): st.session_state.tab_activa = "cob"
+
+with c4:
+    st.markdown(f'<div class="metric-card">👥<div class="metric-val">{n_clientes}</div><div class="metric-lab">Clientes</div></div>', unsafe_allow_html=True)
+    if st.button("Ver Clientes", key="btn_cli"): st.session_state.tab_activa = "cli"
+
+# --- SECCIÓN DINÁMICA INFERIOR ---
+
+if st.session_state.tab_activa == "hoy":
+    st.markdown('<div class="section-title">Turnos Pendientes</div>', unsafe_allow_html=True)
+    pendientes = [t for t in data if t['fecha'] == hoy and t['estado'].lower() == "pendiente"]
+    for t in pendientes:
+        with st.container():
+            st.markdown(f'<div class="item-card"><b>{t["nombre"]}</b><br><small>🕒 {t.get("hora", "S/H")} | {t["servicio"]}</small></div>', unsafe_allow_html=True)
+            col_b1, col_b2 = st.columns([4, 1])
+            if col_b1.button(f"FINALIZAR", key=f"fin_{t['id']}"):
+                supabase.table("Turnos").update({"estado": "Completado"}).eq("id", t['id']).execute()
                 st.rerun()
-            except: st.error("Error")
-else:
-    # Carga de Datos
-    res = supabase.table("Turnos").select("*").eq("barber_id", st.session_state.user_id).execute()
-    data = res.data if res.data else []
-    
-    hoy_dt = datetime.now().date()
-    hoy_iso = hoy_dt.isoformat()
-    hace_una_semana = (hoy_dt - timedelta(days=7)).isoformat()
-    proxima_semana = (hoy_dt + timedelta(days=7)).isoformat()
+            col_b2.button("WA", key=f"wa_{t['id']}")
 
-    if st.sidebar.button("Cerrar Sesión"):
-        st.session_state.auth = False
-        st.rerun()
+elif st.session_state.tab_activa == "age":
+    st.markdown('<div class="section-title">Agenda Semanal</div>', unsafe_allow_html=True)
+    # Lógica de agrupación por fecha similar a la captura
+    fechas = sorted(list(set(t['fecha'] for t in data if t['fecha'] >= hoy)))
+    for f in fechas:
+        st.markdown(f"**{f}**")
+        for t in [x for x in data if x['fecha'] == f]:
+            st.markdown(f'<div class="item-card">• {t.get("hora", "")} - {t["nombre"]}</div>', unsafe_allow_html=True)
 
-    st.title("Panel de Control")
-    
-    # Cálculos
-    p_hoy = [t for t in data if t['fecha'] == hoy_iso and t['estado'].lower() == "pendiente"]
-    f_hoy = [t for t in data if t['fecha'] == hoy_iso and t['estado'].lower() == "completado"]
-    
-    # Turnos futuros (Agenda)
-    a_sem = [t for t in data if hoy_iso <= t['fecha'] <= proxima_semana and t['estado'].lower() == "pendiente"]
-    
-    # Recaudación de los últimos 7 días (Lo que ya se cobró)
-    completados_semana = [t for t in data if hace_una_semana <= t['fecha'] <= hoy_iso and t['estado'].lower() == "completado"]
-    total_recaudado_semana = sum(int(t.get('precio', 0) or 0) for t in completados_semana)
-
-    # Métricas principales
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown(f'<div class="metric-card-custom"><div class="icon-box orange">🕒</div><div class="metric-value">{len(p_hoy)}</div><div class="metric-label">Turnos Hoy</div></div>', unsafe_allow_html=True)
-        _, bc = st.columns([1, 1]); 
-        if bc.button("Detalle", key="b1"): st.session_state.tab_activa = "hoy"
-
-        st.markdown(f'<div class="metric-card-custom"><div class="icon-box green">✅</div><div class="metric-value">{len(f_hoy)}</div><div class="metric-label">Finalizados Hoy</div></div>', unsafe_allow_html=True)
-        _, bc = st.columns([1, 1]); 
-        if bc.button("Ver Historial", key="b2"): st.session_state.tab_activa = "hist"
-
-    with col2:
-        st.markdown(f'<div class="metric-card-custom"><div class="icon-box blue">📅</div><div class="metric-value">{len(a_sem)}</div><div class="metric-label">Agenda Semanal</div></div>', unsafe_allow_html=True)
-        _, bc = st.columns([1, 1]); 
-        if bc.button("Ver Agenda/Caja", key="b3"): st.session_state.tab_activa = "sem"
-
-        st.markdown(f'<div class="metric-card-custom"><div class="icon-box purple">👥</div><div class="metric-value">{len(set(t["nombre"] for t in data if t.get("nombre")))}</div><div class="metric-label">Clientes</div></div>', unsafe_allow_html=True)
-        _, bc = st.columns([1, 1]); 
-        if bc.button("Ver Lista", key="b4"): st.session_state.tab_activa = "cli"
-
-    # --- DESPLEGABLE CON RECAUDACIÓN ---
-    if st.session_state.tab_activa:
-        st.markdown('<div class="detalle-container">', unsafe_allow_html=True)
-        
-        if st.session_state.tab_activa == "sem":
-            st.subheader("📊 Resumen Semanal")
-            
-            # Caja de recaudación destacada
-            st.markdown(f"""
-                <div class="recaudacion-box">
-                    <span style="color: #888888; font-size: 12px;">RECAUDACIÓN ÚLTIMOS 7 DÍAS</span><br>
-                    <span style="font-size: 24px; font-weight: 700; color: #2196f3;">$ {total_recaudado_semana}</span>
+elif st.session_state.tab_activa == "cob":
+    st.markdown('<div class="section-title">Historial de Cobros</div>', unsafe_allow_html=True)
+    st.button("➕ REGISTRAR VENTA RÁPIDA")
+    total_recaudado = 0
+    cobros = [t for t in data if t['fecha'] == hoy and t['estado'].lower() == "completado"]
+    for t in cobros:
+        precio = int(t.get('precio', 0) or 0)
+        total_recaudado += precio
+        st.markdown(f'''
+            <div class="item-card">
+                <div style="display: flex; justify-content: space-between;">
+                    <span><b>{t["nombre"]}</b><br><small>{t["fecha"]} | {t["servicio"]}</small></span>
+                    <span style="color: #4CAF50; font-weight: 700;">${precio}</span>
                 </div>
-            """, unsafe_allow_html=True)
-            
-            st.markdown("**Próximos turnos:**")
-            if not a_sem: st.caption("No hay turnos programados.")
-            for t in a_sem:
-                st.write(f"📅 {t['fecha']} | {t['nombre']} - {t['servicio']}")
+            </div>
+        ''', unsafe_allow_html=True)
+    st.markdown("---")
+    st.markdown(f'<div style="display: flex; justify-content: space-between;"><span class="section-title">RECAUDACIÓN:</span><span class="recaudacion-text">${total_recaudado}</span></div>', unsafe_allow_html=True)
 
-        elif st.session_state.tab_activa == "hoy":
-            st.subheader("Pendientes de Hoy")
-            for t in p_hoy: st.write(f"• {t['nombre']} ({t['servicio']})")
-
-        elif st.session_state.tab_activa == "cli":
-            st.subheader("Mis Clientes")
-            for n in sorted(list(set(t['nombre'] for t in data if t.get('nombre')))): st.write(f"👤 {n}")
-
-        if st.button("Cerrar ✕"):
-            st.session_state.tab_activa = None
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+elif st.session_state.tab_activa == "cli":
+    st.markdown('<div class="section-title">Mis Clientes</div>', unsafe_allow_html=True)
+    clientes_unicos = sorted(list(set(t['nombre'] for t in data if t.get('nombre'))))
+    for c in clientes_unicos:
+        visitas = len([x for x in data if x['nombre'] == c])
+        st.markdown(f'''
+            <div class="item-card">
+                👤 <b>{c}</b><br>
+                <small>📞 1122334455 | ⭐ {visitas} visitas</small>
+            </div>
+        ''', unsafe_allow_html=True)
