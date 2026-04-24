@@ -55,7 +55,7 @@ if not st.session_state.auth:
                     # BUSCAR NOMBRE DEL NEGOCIO DINÁMICO
                     try:
                         # Buscamos en la tabla 'Usuarios' el campo 'nombre_negocio'
-                        userData = supabase.table("configuracion").select("nombre_negocio").eq("id", res.user.id).single().execute()
+                        userData = supabase.table("Usuarios").select("nombre_negocio").eq("id", res.user.id).single().execute()
                         st.session_state.nombre_negocio = userData.data['nombre_negocio']
                     except:
                         # Si falla, usamos el mail como respaldo
