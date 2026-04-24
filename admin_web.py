@@ -1,6 +1,7 @@
 import streamlit as st
 from supabase import create_client, Client
 from datetime import datetime, timedelta
+import time
 
 # 1. CONFIGURACIÓN
 st.set_page_config(page_title="BarberFlow Admin", layout="wide")
@@ -22,58 +23,60 @@ st.markdown("""
     .header-text { font-size: 32px; font-weight: 800; color: #FFD700; margin-bottom: 20px; text-transform: uppercase; }
     .metric-card { background-color: #1A1C23; border: 1px solid #2D3139; border-radius: 20px; padding: 20px; }
     .metric-val { font-size: 42px; font-weight: 700; color: #FFFFFF; }
-    .metric-lab { font-size: 14px; color: #888888; }
-    .section-title { color: #FFD700; font-size: 24px; font-weight: 700; margin: 30px 0; }
+    .metric-lab { font-size: 14px; color: #888888; margin-top: 5px; }
+    .section-title { color: #FFD700; font-size: 24px; font-weight: 700; margin: 30px 0 20px 0; }
     .item-card { background-color: #1A1C23; border-radius: 15px; padding: 15px; margin-bottom: 10px; border-left: 5px solid #2D3139; }
-    .stButton>button { background-color: #FFD700 !important; color: #000000 !important; font-weight: 700 !important; border-radius: 12px !important; border: none !important; }
-    input { background-color: #1A1C23 !important; color: white !important; border: 1px solid #2D3139 !important; }
+    .stButton>button { background-color: #FFD700 !important; color: #000000 !important; font-weight: 700 !important; border-radius: 12px !important; border: none !important; width: 100%; height: 40px; }
+    .recaudacion-box { background-color: #1A1C23; padding: 15px; border-radius: 15px; border: 1px solid #2D3139; margin-top: 10px; }
+    .text-green { color: #4CAF50; font-weight: 700; font-size: 24px; }
+    .text-blue { color: #2196F3; font-weight: 700; font-size: 24px; }
+    input { background-color: #1A1C23 !important; color: white !important; border: 1px solid #2D3139 !important; border-radius: 8px !important; }
     </style>
     """, unsafe_allow_html=True)
 
+# 4. ESTADOS DE SESIÓN
 if 'auth' not in st.session_state: st.session_state.auth = False
 if 'nombre_negocio' not in st.session_state: st.session_state.nombre_negocio = "BARBERÍA"
 if 'tab_activa' not in st.session_state: st.session_state.tab_activa = "hoy"
 
 # --- LOGIN ---
 if not st.session_state.auth:
-    st.markdown("<h1 style='text-align: center; color: #FFD700;'>BarberFlow</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: #FFD700; margin-top: 50px;'>BarberFlow</h1>", unsafe_allow_html=True)
     _, c2, _ = st.columns([1, 1.5, 1])
     with c2:
-        with st.form("login"):
-            u = st.text_input("Correo")
-            p = st.text_input("Contraseña", type="password")
+        with st.form("login_form"):
+            email = st.text_input("Correo")
+            password = st.text_input("Contraseña", type="password")
             if st.form_submit_button("ENTRAR"):
                 try:
-                    res = supabase.auth.sign_in_with_password({"email": u, "password": p})
+                    res = supabase.auth.sign_in_with_password({"email": email, "password": password})
                     uid = res.user.id
                     st.session_state.user_id = uid
                     
-                    # CONSULTA EXACTA SEGÚN TU CAPTURA DE PANTALLA
-                    # Tabla: Configuracion | Campo: nombre_negocio | Filtro: barber_id
+                    # Consulta a tu tabla Configuracion según la captura
                     conf = supabase.table("Configuracion").select("nombre_negocio").eq("barber_id", uid).execute()
-                    
                     if conf.data:
                         st.session_state.nombre_negocio = conf.data[0]['nombre_negocio']
                     else:
-                        st.session_state.nombre_negocio = u.split('@')[0].upper()
+                        st.session_state.nombre_negocio = email.split('@')[0].upper()
                     
                     st.session_state.auth = True
                     st.rerun()
-                except Exception as e:
-                    st.error("Credenciales incorrectas o error de conexión.")
+                except:
+                    st.error("Credenciales incorrectas.")
 
-# --- APP ---
+# --- APP COMPLETA ---
 else:
-    # Título dinámico
     st.markdown(f'<div class="header-text">💈 {st.session_state.nombre_negocio}</div>', unsafe_allow_html=True)
     
-    # Carga de datos
+    # CARGA DE DATOS GENERALES
     res = supabase.table("Turnos").select("*").eq("barber_id", st.session_state.user_id).execute()
     data = res.data if res.data else []
     ahora = datetime.now().date()
     hoy_iso = ahora.isoformat()
+    hace_7_dias = (ahora - timedelta(days=7)).isoformat()
 
-    # Dashboard
+    # TARJETAS DE NAVEGACIÓN
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         st.markdown(f'<div class="metric-card">🕒<div class="metric-val">{len([t for t in data if t["fecha"] == hoy_iso and t["estado"].lower() == "pendiente"])}</div><div class="metric-lab">Hoy</div></div>', unsafe_allow_html=True)
@@ -88,18 +91,61 @@ else:
         st.markdown(f'<div class="metric-card">👥<div class="metric-val">{len(set(t["nombre"] for t in data if t.get("nombre")))}</div><div class="metric-lab">Clientes</div></div>', unsafe_allow_html=True)
         if st.button("Ver Clientes", key="cl"): st.session_state.tab_activa = "cli"
 
-    # Sección Hoy
+    # --- PESTAÑA HOY ---
     if st.session_state.tab_activa == "hoy":
         st.markdown('<div class="section-title">Turnos Pendientes</div>', unsafe_allow_html=True)
-        for t in [x for x in data if x['fecha'] == hoy_iso and x['estado'].lower() == "pendiente"]:
+        pendientes = [t for t in data if t['fecha'] == hoy_iso and t['estado'].lower() == "pendiente"]
+        if not pendientes: st.info("No hay turnos para hoy.")
+        for t in pendientes:
             with st.container():
                 st.markdown(f'<div class="item-card"><b>{t["nombre"]}</b><br><small>{t["servicio"]}</small></div>', unsafe_allow_html=True)
                 col1, col2 = st.columns([2, 1])
-                m = col1.number_input("Precio", min_value=0, key=f"m_{t['id']}", label_visibility="collapsed")
+                m = col1.number_input("Cobrar $", min_value=0, key=f"m_{t['id']}", label_visibility="collapsed")
                 if col2.button("FINALIZAR", key=f"b_{t['id']}"):
                     supabase.table("Turnos").update({"estado": "Completado", "precio": m}).eq("id", t['id']).execute()
                     st.rerun()
 
-    if st.sidebar.button("Cerrar Sesión"):
-        st.session_state.clear()
-        st.rerun()
+    # --- PESTAÑA AGENDA ---
+    elif st.session_state.tab_activa == "age":
+        st.markdown('<div class="section-title">Próximos Turnos</div>', unsafe_allow_html=True)
+        proximos = sorted([t for t in data if t['fecha'] >= hoy_iso and t['estado'].lower() == "pendiente"], key=lambda x: x['fecha'])
+        for t in proximos:
+            st.markdown(f'<div class="item-card">📅 {t["fecha"]} | {t.get("hora","--:--")} - <b>{t["nombre"]}</b><br><small>{t["servicio"]}</small></div>', unsafe_allow_html=True)
+
+    # --- PESTAÑA COBROS ---
+    elif st.session_state.tab_activa == "cob":
+        st.markdown('<div class="section-title">Caja y Recaudación</div>', unsafe_allow_html=True)
+        c_hoy = [t for t in data if t['fecha'] == hoy_iso and t['estado'].lower() == "completado"]
+        c_sem = [t for t in data if hace_7_dias <= t['fecha'] <= hoy_iso and t['estado'].lower() == "completado"]
+        
+        ca1, ca2 = st.columns(2)
+        ca1.markdown(f'<div class="recaudacion-box"><small>CAJA HOY</small><br><span class="text-green">$ {sum(int(t.get("precio", 0) or 0) for t in c_hoy)}</span></div>', unsafe_allow_html=True)
+        ca2.markdown(f'<div class="recaudacion-box"><small>SEMANA</small><br><span class="text-blue">$ {sum(int(t.get("precio", 0) or 0) for t in c_sem)}</span></div>', unsafe_allow_html=True)
+        
+        with st.expander("➕ REGISTRAR VENTA RÁPIDA"):
+            with st.form("vr"):
+                n = st.text_input("Nombre Cliente")
+                s = st.selectbox("Servicio", ["Corte", "Barba", "Combo", "Otro"])
+                p = st.number_input("Precio $", min_value=0)
+                if st.form_submit_button("GUARDAR"):
+                    supabase.table("Turnos").insert({"nombre": n, "servicio": s, "precio": p, "fecha": hoy_iso, "estado": "Completado", "barber_id": st.session_state.user_id}).execute()
+                    st.rerun()
+
+        for t in c_hoy:
+            st.markdown(f'<div class="item-card"><div style="display: flex; justify-content: space-between;"><span><b>{t["nombre"]}</b><br><small>{t["servicio"]}</small></span><span style="color: #4CAF50; font-weight: 700;">$ {t.get("precio", 0)}</span></div></div>', unsafe_allow_html=True)
+
+    # --- PESTAÑA CLIENTES ---
+    elif st.session_state.tab_activa == "cli":
+        st.markdown('<div class="section-title">Historial de Clientes</div>', unsafe_allow_html=True)
+        # Agrupar por nombre para ver cuántas veces vino cada uno
+        nombres = sorted(list(set(t['nombre'] for t in data if t.get('nombre'))))
+        for c in nombres:
+            visitas = len([x for x in data if x['nombre'] == c and x['estado'].lower() == "completado"])
+            st.markdown(f'<div class="item-card">👤 <b>{c}</b><br><small>Visitas: {visitas}</small></div>', unsafe_allow_html=True)
+
+    # SIDEBAR
+    with st.sidebar:
+        st.markdown(f"**Usuario:** {st.session_state.user_id[:8]}")
+        if st.button("Cerrar Sesión"):
+            st.session_state.clear()
+            st.rerun()
