@@ -16,7 +16,7 @@ def init_connection():
 
 supabase: Client = init_connection()
 
-# 3. ESTILOS CSS (Se mantienen los que ya te gustaron)
+# 3. ESTILOS CSS
 st.markdown("""
     <style>
     [data-testid="stAppViewContainer"], .main { background-color: #0E1117 !important; }
@@ -27,67 +27,72 @@ st.markdown("""
     .section-title { color: #FFD700; font-size: 24px; font-weight: 700; margin: 30px 0 20px 0; }
     .item-card { background-color: #1A1C23; border-radius: 15px; padding: 15px; margin-bottom: 10px; border-left: 5px solid #2D3139; }
     .stButton>button { background-color: #FFD700 !important; color: #000000 !important; font-weight: 700 !important; border-radius: 12px !important; border: none !important; width: 100%; height: 40px; }
-    .recaudacion-box { background-color: #1A1C23; padding: 15px; border-radius: 15px; border: 1px solid #2D3139; }
-    .text-green { color: #4CAF50; font-weight: 700; font-size: 24px; }
-    .text-blue { color: #2196F3; font-weight: 700; font-size: 24px; }
     input { background-color: #1A1C23 !important; color: white !important; border: 1px solid #2D3139 !important; border-radius: 8px !important; }
+    .recaudacion-box { background-color: #1A1C23; padding: 15px; border-radius: 15px; border: 1px solid #2D3139; }
     </style>
     """, unsafe_allow_html=True)
 
-# 4. LÓGICA DE PERSISTENCIA (COOKIES SIMULADAS)
-# Si no hay auth en session_state, revisamos si está en los parámetros de la URL
-if 'auth' not in st.session_state:
-    if "uid" in st.query_params:
-        st.session_state.auth = True
-        st.session_state.user_id = st.query_params["uid"]
-    else:
-        st.session_state.auth = False
+# 4. PERSISTENCIA Y ESTADO
+if "uid" in st.query_params and 'auth' not in st.session_state:
+    st.session_state.auth = True
+    st.session_state.user_id = st.query_params["uid"]
 
+if 'auth' not in st.session_state: st.session_state.auth = False
 if 'nombre_negocio' not in st.session_state: st.session_state.nombre_negocio = "BARBERÍA"
 if 'tab_activa' not in st.session_state: st.session_state.tab_activa = "hoy"
 
-# --- PANTALLA DE LOGIN ---
+# --- LÓGICA DE LOGIN (SIN st.form para evitar el doble clic) ---
 if not st.session_state.auth:
     st.markdown("<h1 style='text-align: center; color: #FFD700; margin-top: 50px;'>BarberFlow</h1>", unsafe_allow_html=True)
     _, col2, _ = st.columns([1, 1.5, 1])
     
     with col2:
-        with st.form("login_form"):
-            email = st.text_input("Correo")
-            password = st.text_input("Contraseña", type="password")
-            if st.form_submit_button("ENTRAR"):
+        email = st.text_input("Correo", placeholder="ejemplo@correo.com")
+        password = st.text_input("Contraseña", type="password", placeholder="******")
+        
+        if st.button("INICIAR SESIÓN"):
+            if email and password:
                 try:
                     res = supabase.auth.sign_in_with_password({"email": email, "password": password})
                     if res.user:
+                        # Guardar todo antes del rerun
                         st.session_state.user_id = res.user.id
                         st.session_state.auth = True
-                        # Guardamos en la URL para que persista al refrescar
                         st.query_params["uid"] = res.user.id
+                        
+                        # Carga inmediata del nombre para que aparezca al primer clic
+                        try:
+                            conf = supabase.table("Configuracion").select("nombre_negocio").eq("barber_id", res.user.id).execute()
+                            if conf.data:
+                                st.session_state.nombre_negocio = conf.data[0]['nombre_negocio']
+                        except: pass
+                        
                         st.rerun()
                 except:
-                    st.error("Credenciales incorrectas.")
+                    st.error("Correo o contraseña incorrectos.")
+            else:
+                st.warning("Por favor completa todos los campos.")
 
 # --- APP PRINCIPAL ---
 else:
-    # Recuperar Nombre del Negocio Dinámico
+    # Doble verificación del nombre si no se cargó en el login
     if st.session_state.nombre_negocio == "BARBERÍA":
         try:
             conf = supabase.table("Configuracion").select("nombre_negocio").eq("barber_id", st.session_state.user_id).execute()
             if conf.data:
                 st.session_state.nombre_negocio = conf.data[0]['nombre_negocio']
-        except:
-            pass
+        except: pass
 
     st.markdown(f'<div class="header-text">💈 {st.session_state.nombre_negocio}</div>', unsafe_allow_html=True)
     
-    # Datos filtrados
+    # Carga de datos
     res = supabase.table("Turnos").select("*").eq("barber_id", st.session_state.user_id).execute()
     data = res.data if res.data else []
     ahora = datetime.now().date()
     hoy_iso = ahora.isoformat()
     hace_7_dias = (ahora - timedelta(days=7)).isoformat()
 
-    # Navegación por Tarjetas (Dashboard)
+    # Dashboard
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         st.markdown(f'<div class="metric-card">🕒<div class="metric-val">{len([t for t in data if t["fecha"] == hoy_iso and t["estado"].lower() == "pendiente"])}</div><div class="metric-lab">Hoy</div></div>', unsafe_allow_html=True)
@@ -102,38 +107,24 @@ else:
         st.markdown(f'<div class="metric-card">👥<div class="metric-val">{len(set(t["nombre"] for t in data if t.get("nombre")))}</div><div class="metric-lab">Clientes</div></div>', unsafe_allow_html=True)
         if st.button("Ver Clientes", key="cl"): st.session_state.tab_activa = "cli"
 
-    # --- CONTENIDO DE PESTAÑAS ---
+    # Secciones
     if st.session_state.tab_activa == "hoy":
         st.markdown('<div class="section-title">Turnos de Hoy</div>', unsafe_allow_html=True)
         for t in [x for x in data if x['fecha'] == hoy_iso and x['estado'].lower() == "pendiente"]:
             with st.container():
                 st.markdown(f'<div class="item-card"><b>{t["nombre"]}</b><br><small>{t["servicio"]}</small></div>', unsafe_allow_html=True)
                 col1, col2 = st.columns([2, 1])
-                m = col1.number_input("Cobrar $", min_value=0, key=f"m_{t['id']}", label_visibility="collapsed")
-                if col2.button("FINALIZAR", key=f"b_{t['id']}"):
+                m = col1.number_input("Monto $", min_value=0, key=f"m_{t['id']}", label_visibility="collapsed")
+                if col2.button("LISTO", key=f"b_{t['id']}"):
                     supabase.table("Turnos").update({"estado": "Completado", "precio": m}).eq("id", t['id']).execute()
                     st.rerun()
 
-    elif st.session_state.tab_activa == "age":
-        st.markdown('<div class="section-title">Agenda Próxima</div>', unsafe_allow_html=True)
-        age = sorted([t for t in data if t['fecha'] >= hoy_iso and t['estado'].lower() == "pendiente"], key=lambda x: x['fecha'])
-        for t in age:
-            st.markdown(f'<div class="item-card">📅 {t["fecha"]} - <b>{t["nombre"]}</b></div>', unsafe_allow_html=True)
-
     elif st.session_state.tab_activa == "cob":
-        st.markdown('<div class="section-title">Recaudación</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">Caja</div>', unsafe_allow_html=True)
         c_hoy = [t for t in data if t['fecha'] == hoy_iso and t['estado'].lower() == "completado"]
-        c_sem = [t for t in data if hace_7_dias <= t['fecha'] <= hoy_iso and t['estado'].lower() == "completado"]
-        col_c1, col_c2 = st.columns(2)
-        col_c1.markdown(f'<div class="recaudacion-box"><small>HOY</small><br><span class="text-green">$ {sum(int(t.get("precio", 0) or 0) for t in c_hoy)}</span></div>', unsafe_allow_html=True)
-        col_c2.markdown(f'<div class="recaudacion-box"><small>SEMANA</small><br><span class="text-blue">$ {sum(int(t.get("precio", 0) or 0) for t in c_sem)}</span></div>', unsafe_allow_html=True)
+        st.info(f"Total hoy: $ {sum(int(t.get('precio', 0) or 0) for t in c_hoy)}")
 
-    elif st.session_state.tab_activa == "cli":
-        st.markdown('<div class="section-title">Mis Clientes</div>', unsafe_allow_html=True)
-        for cl in sorted(list(set(t['nombre'] for t in data if t.get('nombre')))):
-            st.markdown(f'<div class="item-card">👤 {cl}</div>', unsafe_allow_html=True)
-
-    # BOTÓN DE CERRAR SESIÓN (Limpia también la URL)
+    # Botón Salir en Sidebar
     if st.sidebar.button("Cerrar Sesión"):
         st.query_params.clear()
         st.session_state.clear()
