@@ -1,7 +1,6 @@
 import streamlit as st
 from supabase import create_client, Client
 from datetime import datetime, timedelta
-import time
 
 # 1. CONFIGURACIÓN
 st.set_page_config(page_title="BarberFlow Admin", layout="wide")
@@ -32,7 +31,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 4. PERSISTENCIA Y ESTADO
+# 4. MANEJO DE PERSISTENCIA INMEDIATA
 if "uid" in st.query_params and 'auth' not in st.session_state:
     st.session_state.auth = True
     st.session_state.user_id = st.query_params["uid"]
@@ -41,58 +40,55 @@ if 'auth' not in st.session_state: st.session_state.auth = False
 if 'nombre_negocio' not in st.session_state: st.session_state.nombre_negocio = "BARBERÍA"
 if 'tab_activa' not in st.session_state: st.session_state.tab_activa = "hoy"
 
-# --- LÓGICA DE LOGIN (SIN st.form para evitar el doble clic) ---
+# --- FUNCIÓN DE LOGIN (CALLBACK) ---
+def intentar_login(e, p):
+    try:
+        res = supabase.auth.sign_in_with_password({"email": e, "password": p})
+        if res.user:
+            st.session_state.user_id = res.user.id
+            st.session_state.auth = True
+            st.query_params["uid"] = res.user.id
+            
+            # Carga del nombre del negocio inmediata
+            conf = supabase.table("Configuracion").select("nombre_negocio").eq("barber_id", res.user.id).execute()
+            if conf.data:
+                st.session_state.nombre_negocio = conf.data[0]['nombre_negocio']
+    except:
+        st.error("Credenciales inválidas.")
+
+# --- PANTALLA DE LOGIN ---
 if not st.session_state.auth:
     st.markdown("<h1 style='text-align: center; color: #FFD700; margin-top: 50px;'>BarberFlow</h1>", unsafe_allow_html=True)
     _, col2, _ = st.columns([1, 1.5, 1])
     
     with col2:
-        email = st.text_input("Correo", placeholder="ejemplo@correo.com")
-        password = st.text_input("Contraseña", type="password", placeholder="******")
-        
-        if st.button("INICIAR SESIÓN"):
-            if email and password:
-                try:
-                    res = supabase.auth.sign_in_with_password({"email": email, "password": password})
-                    if res.user:
-                        # Guardar todo antes del rerun
-                        st.session_state.user_id = res.user.id
-                        st.session_state.auth = True
-                        st.query_params["uid"] = res.user.id
-                        
-                        # Carga inmediata del nombre para que aparezca al primer clic
-                        try:
-                            conf = supabase.table("Configuracion").select("nombre_negocio").eq("barber_id", res.user.id).execute()
-                            if conf.data:
-                                st.session_state.nombre_negocio = conf.data[0]['nombre_negocio']
-                        except: pass
-                        
-                        st.rerun()
-                except:
-                    st.error("Correo o contraseña incorrectos.")
-            else:
-                st.warning("Por favor completa todos los campos.")
+        email_input = st.text_input("Correo")
+        pass_input = st.text_input("Contraseña", type="password")
+        # Usamos el botón para disparar la función ANTES de que Streamlit decida qué dibujar
+        if st.button("ENTRAR"):
+            intentar_login(email_input, pass_input)
+            if st.session_state.auth:
+                st.rerun()
 
 # --- APP PRINCIPAL ---
 else:
-    # Doble verificación del nombre si no se cargó en el login
+    # Si entramos por refresco (URL), nos aseguramos de tener el nombre
     if st.session_state.nombre_negocio == "BARBERÍA":
         try:
             conf = supabase.table("Configuracion").select("nombre_negocio").eq("barber_id", st.session_state.user_id).execute()
-            if conf.data:
-                st.session_state.nombre_negocio = conf.data[0]['nombre_negocio']
+            if conf.data: st.session_state.nombre_negocio = conf.data[0]['nombre_negocio']
         except: pass
 
     st.markdown(f'<div class="header-text">💈 {st.session_state.nombre_negocio}</div>', unsafe_allow_html=True)
     
-    # Carga de datos
+    # Resto de la lógica (Turnos, Agenda, Cobros, Clientes)
     res = supabase.table("Turnos").select("*").eq("barber_id", st.session_state.user_id).execute()
     data = res.data if res.data else []
     ahora = datetime.now().date()
     hoy_iso = ahora.isoformat()
     hace_7_dias = (ahora - timedelta(days=7)).isoformat()
 
-    # Dashboard
+    # Dashboard simplificado para probar la entrada rápida
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         st.markdown(f'<div class="metric-card">🕒<div class="metric-val">{len([t for t in data if t["fecha"] == hoy_iso and t["estado"].lower() == "pendiente"])}</div><div class="metric-lab">Hoy</div></div>', unsafe_allow_html=True)
@@ -107,24 +103,19 @@ else:
         st.markdown(f'<div class="metric-card">👥<div class="metric-val">{len(set(t["nombre"] for t in data if t.get("nombre")))}</div><div class="metric-lab">Clientes</div></div>', unsafe_allow_html=True)
         if st.button("Ver Clientes", key="cl"): st.session_state.tab_activa = "cli"
 
-    # Secciones
+    # Lógica de pestañas (Hoy, Agenda, Cobros, Clientes)
     if st.session_state.tab_activa == "hoy":
         st.markdown('<div class="section-title">Turnos de Hoy</div>', unsafe_allow_html=True)
         for t in [x for x in data if x['fecha'] == hoy_iso and x['estado'].lower() == "pendiente"]:
             with st.container():
                 st.markdown(f'<div class="item-card"><b>{t["nombre"]}</b><br><small>{t["servicio"]}</small></div>', unsafe_allow_html=True)
                 col1, col2 = st.columns([2, 1])
-                m = col1.number_input("Monto $", min_value=0, key=f"m_{t['id']}", label_visibility="collapsed")
-                if col2.button("LISTO", key=f"b_{t['id']}"):
+                m = col1.number_input("Cobrar $", min_value=0, key=f"m_{t['id']}", label_visibility="collapsed")
+                if col2.button("FINALIZAR", key=f"b_{t['id']}"):
                     supabase.table("Turnos").update({"estado": "Completado", "precio": m}).eq("id", t['id']).execute()
                     st.rerun()
 
-    elif st.session_state.tab_activa == "cob":
-        st.markdown('<div class="section-title">Caja</div>', unsafe_allow_html=True)
-        c_hoy = [t for t in data if t['fecha'] == hoy_iso and t['estado'].lower() == "completado"]
-        st.info(f"Total hoy: $ {sum(int(t.get('precio', 0) or 0) for t in c_hoy)}")
-
-    # Botón Salir en Sidebar
+    # Cerrar Sesión
     if st.sidebar.button("Cerrar Sesión"):
         st.query_params.clear()
         st.session_state.clear()
